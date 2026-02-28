@@ -1,0 +1,105 @@
+service: claude-webasto
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  region: ${env:AWS_REGION, 'eu-north-1'}
+  memorySize: 128
+  timeout: 30
+  logRetentionInDays: 14
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - arn:aws:secretsmanager:${aws:region}:${aws:accountId}:secret:claude-webasto/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: arn:aws:logs:${aws:region}:${aws:accountId}:*
+  environment:
+    AWS_SECRET_NAME: claude-webasto/prod/token
+    WARMUP_MESSAGE: "Hello! This is an automated warm-up message to reset my Claude Code rate limit window. Please just say 'Warmed up!' in response."
+    MODEL: claude-haiku-4-5-20251001
+    MAX_TOKENS: '64'
+
+functions:
+  warmup:
+    handler: dist/warmup.handler
+    description: Warm up Claude Code rate limit window
+    events:
+      - schedule:
+          rate: cron(0 6 * * ? *)
+          enabled: true
+          description: "8 AM Kyiv (UTC+2) - warmup for 10 AM work start"
+
+resources:
+  Resources:
+    AlertTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: claude-webasto-alerts
+        DisplayName: Claude Webasto Alerts
+
+    ErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: claude-webasto-error-rate
+        AlarmDescription: Alert when warmup Lambda fails
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref WarmupLambdaFunction
+        AlarmActions:
+          - !Ref AlertTopic
+        TreatMissingData: notBreaching
+
+    ThrottleAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: claude-webasto-throttles
+        AlarmDescription: Alert when Lambda is throttled
+        MetricName: Throttles
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref WarmupLambdaFunction
+        AlarmActions:
+          - !Ref AlertTopic
+        TreatMissingData: notBreaching
+
+package:
+  patterns:
+    - 'dist/**'
+    - '!node_modules/**'
+    - '!src/**'
+    - '!scripts/**'
+    - '!.git/**'
+    - '!.env*'
+    - '!*.md'
+    - '!*.ts'
+
+outputs:
+  FunctionArn:
+    Description: Warmup Lambda function ARN
+    Value:
+      Fn::GetAtt: [WarmupLambdaFunction, Arn]
+  AlertTopicArn:
+    Description: SNS Topic ARN for alerts (subscribe your email)
+    Value:
+      Ref: AlertTopic

@@ -1,0 +1,17 @@
+{
+  "name": "claude-webasto",
+  "version": "1.0.0",
+  "description": "AWS Lambda cron to warm up Claude Code rate limit window",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "deploy": "./scripts/deploy.sh",
+    "remove": "./scripts/remove.sh"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1000.0",
+    "@types/aws-lambda": "^8",
+    "@types/node": "^22",
+    "typescript": "^5.4.0"
+  }
+}
