@@ -41,15 +41,15 @@ functions:
       - schedule:
           rate: cron(0 6 * * ? *)
           enabled: true
-          description: "alice - 8 AM Kyiv (UTC+2)"
+          description: "personal - 8 AM Kyiv (UTC+2) - warmup for 10 AM work start"
           input:
-            tokenId: alice
+            tokenId: personal
       - schedule:
-          rate: cron(0 14 * * ? *)
+          rate: cron(0 6 * * ? *)
           enabled: true
-          description: "bob - own timezone"
+          description: "work - 8 AM Kyiv (UTC+2) - warmup for 10 AM work start"
           input:
-            tokenId: bob
+            tokenId: work
 
 resources:
   Resources:
