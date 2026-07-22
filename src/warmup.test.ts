@@ -50,10 +50,9 @@ describe("createHandler", () => {
     await expect(createHandler(deps)({ tokenId: "alice" })).rejects.toThrow(/status 401/);
     expect(deps.tokenStore.invalidate).toHaveBeenCalledWith("claude-webasto/prod/token/alice");
     expect(deps.alerter.publishFailure).toHaveBeenCalledTimes(1);
-    expect((deps.alerter.publishFailure as any).mock.calls[0][0]).toMatchObject({
-      tokenId: "alice",
-      region: "eu-north-1",
-    });
+    expect(deps.alerter.publishFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenId: "alice", region: "eu-north-1" }),
+    );
   });
 
   it("alerts but does NOT invalidate on 500", async () => {
@@ -83,5 +82,13 @@ describe("createHandler", () => {
     expect(deps.alerter.publishFailure).toHaveBeenCalledWith(
       expect.objectContaining({ tokenId: "default" }),
     );
+  });
+
+  it("rethrows the original error, not the SNS error, when publishFailure itself rejects", async () => {
+    const deps = makeDeps({
+      fetchFn: vi.fn().mockRejectedValue(new Error("network down")),
+      alerter: { publishFailure: vi.fn().mockRejectedValue(new Error("sns down")) },
+    });
+    await expect(createHandler(deps)({ tokenId: "alice" })).rejects.toThrow(/network down/);
   });
 });

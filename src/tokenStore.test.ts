@@ -46,6 +46,27 @@ describe("createTokenStore", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it("invalidate only affects the named entry, leaving other cached entries untouched", async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce(secretOf("tok-a"))
+      .mockResolvedValueOnce(secretOf("tok-b"))
+      .mockResolvedValueOnce(secretOf("tok-a2"));
+    const store = createTokenStore(fakeClient(send));
+
+    await expect(store.getToken("s/a")).resolves.toBe("tok-a");
+    await expect(store.getToken("s/b")).resolves.toBe("tok-b");
+    expect(send).toHaveBeenCalledTimes(2);
+
+    store.invalidate("s/a");
+
+    await expect(store.getToken("s/a")).resolves.toBe("tok-a2");
+    expect(send).toHaveBeenCalledTimes(3);
+
+    await expect(store.getToken("s/b")).resolves.toBe("tok-b");
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
   it("throws when SecretString is empty", async () => {
     const send = vi.fn().mockResolvedValue({ SecretString: "" });
     const store = createTokenStore(fakeClient(send));
@@ -56,5 +77,11 @@ describe("createTokenStore", () => {
     const send = vi.fn().mockResolvedValue({ SecretString: JSON.stringify({ other: 1 }) });
     const store = createTokenStore(fakeClient(send));
     await expect(store.getToken("s/a")).rejects.toThrow(/not found in secret/);
+  });
+
+  it("rejects when SecretString is malformed JSON", async () => {
+    const send = vi.fn().mockResolvedValue({ SecretString: "not json{" });
+    const store = createTokenStore(fakeClient(send));
+    await expect(store.getToken("s/a")).rejects.toThrow();
   });
 });

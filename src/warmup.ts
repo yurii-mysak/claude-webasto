@@ -73,12 +73,25 @@ export function createHandler(
       console.error(
         JSON.stringify({ timestamp, tokenId, error: message, model: config.model }),
       );
-      await alerter.publishFailure({
-        tokenId,
-        error: message,
-        timestamp,
-        region: config.region,
-      });
+      try {
+        await alerter.publishFailure({
+          tokenId,
+          error: message,
+          timestamp,
+          region: config.region,
+        });
+      } catch (alertError) {
+        const alertMessage =
+          alertError instanceof Error ? alertError.message : String(alertError);
+        console.error(
+          JSON.stringify({
+            timestamp,
+            tokenId,
+            error: `SNS publish failed: ${alertMessage}`,
+            model: config.model,
+          }),
+        );
+      }
       throw error;
     }
   };

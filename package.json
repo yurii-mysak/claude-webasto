@@ -13,7 +13,6 @@
   "devDependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1000.0",
     "@aws-sdk/client-sns": "^3.1000.0",
-    "@types/aws-lambda": "^8",
     "@types/node": "^22",
     "@vitest/coverage-v8": "^2.1.0",
     "typescript": "^5.4.0",
