@@ -16,6 +16,23 @@ echo "Claude Webasto - Secrets Setup"
 echo -e "========================================${NC}"
 echo ""
 
+# Token ID handling
+TOKEN_ID="${1:-}"
+SECRET_BASE="claude-webasto/prod/token"
+
+if [ -n "$TOKEN_ID" ]; then
+    if ! echo "$TOKEN_ID" | grep -Eq '^[a-z0-9-]+$'; then
+        echo -e "${RED}Error: token id must match ^[a-z0-9-]+\$ (got: ${TOKEN_ID})${NC}"
+        exit 1
+    fi
+    SECRET_NAME="${SECRET_BASE}/${TOKEN_ID}"
+else
+    SECRET_NAME="${SECRET_BASE}"
+    echo -e "${YELLOW}No token id given; using legacy secret ${SECRET_NAME}.${NC}"
+    echo -e "${YELLOW}For multi-token, re-run as: ./scripts/setup-secrets.sh <id>${NC}"
+    echo ""
+fi
+
 # Check AWS CLI
 if ! command -v aws &> /dev/null; then
     echo -e "${RED}Error: AWS CLI not found${NC}"
@@ -37,8 +54,6 @@ echo ""
 # Prompt for region
 read -p "AWS Region (default: eu-north-1): " AWS_REGION
 AWS_REGION=${AWS_REGION:-eu-north-1}
-
-SECRET_NAME="claude-webasto/prod/token"
 
 echo ""
 echo -e "${BLUE}Secret will be created as: ${SECRET_NAME}${NC}"
@@ -118,17 +133,20 @@ echo -e "${BLUE}========================================"
 echo "Next Steps"
 echo -e "========================================${NC}"
 echo ""
-echo "1. Deploy the Lambda function:"
+echo "1. Add a matching schedule in serverless.yml with:"
+echo "     input: { tokenId: ${TOKEN_ID:-<none, legacy>} }"
+echo ""
+echo "2. Deploy the Lambda function:"
 echo "   npm run deploy"
 echo ""
-echo "2. Subscribe to alerts (optional):"
+echo "3. Subscribe to alerts (optional):"
 echo "   aws sns subscribe \\"
 echo "     --topic-arn <AlertTopicArn from deploy output> \\"
 echo "     --protocol email \\"
 echo "     --notification-endpoint your@email.com \\"
 echo "     --region $AWS_REGION"
 echo ""
-echo "3. Verify the secret is accessible:"
+echo "4. Verify the secret is accessible:"
 echo "   aws secretsmanager get-secret-value \\"
 echo "     --secret-id $SECRET_NAME \\"
 echo "     --region $AWS_REGION"
