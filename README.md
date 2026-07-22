@@ -45,7 +45,7 @@ Claude Code enforces rate limits on a **rolling 5-hour window** starting from yo
 - ✅ **Zero runtime dependencies** — native `fetch` + bundled AWS SDK v3
 - ✅ **Token caching** — Secrets Manager called once, cached across warm invocations
 - ✅ **Auto-refresh on auth failure** — 401/403 invalidates cache, next invocation retries
-- ✅ **Minimal footprint** — 128 MB Lambda, ~1s execution, single source file
+- ✅ **Minimal footprint** — 128 MB Lambda, ~1s execution, focused modular design
 - ✅ **Cost: FREE** — well within AWS free tier
 
 ---
@@ -163,7 +163,11 @@ See [CLAUDE.md](CLAUDE.md) for full technical details.
 
 ```
 ├── src/
-│   └── warmup.ts            # Lambda handler (single file, ~95 lines)
+│   ├── config.ts            # Load config from environment
+│   ├── secretName.ts        # Resolve per-token secret name
+│   ├── tokenStore.ts        # Per-token cache (Map) + Secrets Manager retrieval
+│   ├── alerter.ts           # SNS failure alert publisher
+│   └── warmup.ts            # Handler that wires dependencies together
 ├── scripts/
 │   ├── deploy.sh            # Build + deploy pipeline
 │   ├── remove.sh            # Teardown + optional secret deletion

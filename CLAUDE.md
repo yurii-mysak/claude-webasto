@@ -108,11 +108,16 @@ Generate the token with: `claude setup-token`
 ## File Structure
 
 ```
-src/warmup.ts          # Lambda handler (single file)
-scripts/deploy.sh      # Build + deploy pipeline
-scripts/remove.sh      # Stack teardown + optional secret deletion
-scripts/setup-secrets.sh  # Store OAuth token in Secrets Manager
-serverless.yml         # IaC: Lambda + EventBridge + SNS + CloudWatch
+src/
+├── config.ts            # Load config from environment
+├── secretName.ts        # Resolve per-token secret name
+├── tokenStore.ts        # Per-token cache (Map) + Secrets Manager retrieval
+├── alerter.ts           # SNS failure alert publisher
+└── warmup.ts            # Handler that wires dependencies together
+scripts/deploy.sh        # Build + deploy pipeline
+scripts/remove.sh        # Stack teardown + optional secret deletion
+scripts/setup-secrets.sh # Store OAuth token in Secrets Manager
+serverless.yml           # IaC: Lambda + EventBridge + SNS + CloudWatch
 ```
 
 ## Code Style
@@ -126,7 +131,7 @@ serverless.yml         # IaC: Lambda + EventBridge + SNS + CloudWatch
 ## Important Implementation Details
 
 ### OAuth Token Caching
-The OAuth token is cached in a module-level variable (`cachedToken`). On error, the cache is invalidated so the next invocation fetches a fresh token from Secrets Manager.
+Tokens are cached per secret name in a `Map` within `src/tokenStore.ts`. On a 401/403 response, only that token's cache entry is invalidated; other tokens' entries remain intact for the next invocation. This enables safe per-token retry logic without affecting other concurrent warmups.
 
 ### Anthropic API Headers
 Required headers for Claude Code OAuth tokens:
