@@ -35,5 +35,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ MAX_TOKENS: "0" })).toThrow(/Invalid MAX_TOKENS/);
     expect(() => loadConfig({ MAX_TOKENS: "-5" })).toThrow(/Invalid MAX_TOKENS/);
     expect(() => loadConfig({ MAX_TOKENS: "abc" })).toThrow(/Invalid MAX_TOKENS/);
+    expect(() => loadConfig({ MAX_TOKENS: "128notanumber" })).toThrow(/Invalid MAX_TOKENS/);
+    expect(() => loadConfig({ MAX_TOKENS: "64.9" })).toThrow(/Invalid MAX_TOKENS/);
   });
 });

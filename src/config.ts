@@ -12,8 +12,8 @@ const DEFAULT_MESSAGE =
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WarmupConfig {
   const maxTokensRaw = env.MAX_TOKENS ?? "64";
-  const maxTokens = parseInt(maxTokensRaw, 10);
-  if (Number.isNaN(maxTokens) || maxTokens <= 0) {
+  const maxTokens = Number(maxTokensRaw.trim());
+  if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
     throw new Error(`Invalid MAX_TOKENS: ${maxTokensRaw}`);
   }
 
