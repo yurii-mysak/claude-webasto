@@ -21,8 +21,14 @@ provider:
             - logs:CreateLogStream
             - logs:PutLogEvents
           Resource: arn:aws:logs:${aws:region}:${aws:accountId}:*
+        - Effect: Allow
+          Action:
+            - sns:Publish
+          Resource:
+            - !Ref AlertTopic
   environment:
-    AWS_SECRET_NAME: claude-webasto/prod/token
+    SECRET_NAME_PREFIX: claude-webasto/prod/token
+    ALERT_TOPIC_ARN: !Ref AlertTopic
     WARMUP_MESSAGE: "Hello! This is an automated warm-up message to reset my Claude Code rate limit window. Please just say 'Warmed up!' in response."
     MODEL: claude-haiku-4-5-20251001
     MAX_TOKENS: '64'
@@ -30,12 +36,20 @@ provider:
 functions:
   warmup:
     handler: dist/warmup.handler
-    description: Warm up Claude Code rate limit window
+    description: Warm up Claude Code rate limit windows (multi-token)
     events:
       - schedule:
           rate: cron(0 6 * * ? *)
           enabled: true
-          description: "8 AM Kyiv (UTC+2) - warmup for 10 AM work start"
+          description: "alice - 8 AM Kyiv (UTC+2)"
+          input:
+            tokenId: alice
+      - schedule:
+          rate: cron(0 14 * * ? *)
+          enabled: true
+          description: "bob - own timezone"
+          input:
+            tokenId: bob
 
 resources:
   Resources:
