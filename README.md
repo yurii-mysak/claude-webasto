@@ -39,8 +39,8 @@ Claude Code enforces rate limits on a **rolling 5-hour window** starting from yo
 
 ## ✨ Features
 
-- ✅ **Scheduled warmup** — EventBridge cron fires daily at 8 AM Kyiv (6 AM UTC)
-- ✅ **Secure token storage** — OAuth token in AWS Secrets Manager (not env vars)
+- ✅ **Multi-token warmup** — one Lambda, one EventBridge schedule per token (`input: { tokenId }`)
+- ✅ **Secure token storage** — one OAuth token per person/token in AWS Secrets Manager (not env vars)
 - ✅ **Failure alerts** — SNS notifications on Lambda errors or throttles
 - ✅ **Zero runtime dependencies** — native `fetch` + bundled AWS SDK v3
 - ✅ **Token caching** — Secrets Manager called once, cached across warm invocations
@@ -66,9 +66,9 @@ npm install
 
 ### 2. Store OAuth Token
 ```bash
-./scripts/setup-secrets.sh
+./scripts/setup-secrets.sh <id>
 ```
-This prompts for your token and stores it in AWS Secrets Manager.
+This prompts for your token and stores it in AWS Secrets Manager under `claude-webasto/prod/token/<id>`. Repeat per person/token you want warmed up (e.g. `alice`, `bob`) — each needs a matching `schedule` block in `serverless.yml` with `input: { tokenId: <id> }`.
 
 ### 3. Deploy
 ```bash
@@ -87,8 +87,8 @@ aws sns subscribe \
 
 ### 5. Verify
 ```bash
-npx serverless invoke -f warmup    # Manual trigger
-npx serverless logs -f warmup      # Check logs
+npx serverless invoke -f warmup --data '{"tokenId":"alice"}'  # Manual trigger for one token
+npx serverless logs -f warmup                                 # Check logs
 ```
 
 ---
@@ -96,27 +96,32 @@ npx serverless logs -f warmup      # Check logs
 ## 🏗️ Architecture
 
 ```
-┌──────────────────┐
-│  EventBridge     │
-│  cron(0 6 * * ?) │  ← 8 AM Kyiv daily
-└──────┬───────────┘
-       │
-       ▼
-┌──────────────────┐     ┌──────────────┐
-│  Lambda          │────▶│  Secrets     │
-│  (Node.js 22)    │     │  Manager     │
-│                  │◀────│  (OAuth tok) │
-│  • Get token     │     └──────────────┘
-│  • POST /v1/msg  │
-│  • Log result    │     ┌──────────────┐
-└──────┬───────────┘     │  CloudWatch  │
-       │                 │  Logs        │
-       │ on failure      └──────────────┘
-       ▼
-┌──────────────────┐     ┌──────────────┐
-│  CloudWatch      │────▶│  SNS Topic   │
-│  Alarm           │     │  → Email     │
-└──────────────────┘     └──────────────┘
+┌────────────────────┐   ┌────────────────────┐
+│  EventBridge        │   │  EventBridge        │   ← one schedule per token
+│  schedule (alice)   │   │  schedule (bob)     │      input: { tokenId }
+└──────────┬──────────┘   └──────────┬──────────┘
+           │                          │
+           └────────────┬─────────────┘
+                         ▼
+              ┌──────────────────────┐     ┌──────────────┐
+              │  Lambda (Node.js 22) │────▶│  Secrets     │
+              │  one fn, N schedules │     │  Manager     │
+              │  • Read tokenId      │◀────│  (per-token) │
+              │  • Get that token    │     └──────────────┘
+              │  • POST /v1/msg      │     ┌──────────────┐
+              │  • Log result        │────▶│  CloudWatch  │
+              └──────────┬────────────┘     │  Logs        │
+                         │                  └──────────────┘
+                         │ on failure (tokenId + error)
+                         ▼
+              ┌──────────────┐     ┌──────────────┐
+              │  SNS Topic   │────▶│  Email       │
+              └──────┬───────┘     └──────────────┘
+                     ▲
+              ┌──────────────┐
+              │  CloudWatch  │  ← backstop on Errors/Throttles
+              │  Alarm       │
+              └──────────────┘
 ```
 
 ---
@@ -125,13 +130,16 @@ npx serverless logs -f warmup      # Check logs
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AWS_SECRET_NAME` | `claude-webasto/prod/token` | Secrets Manager secret name |
+| `SECRET_NAME_PREFIX` | `claude-webasto/prod/token` | Secrets Manager name prefix; per-token secret is `<prefix>/<tokenId>` |
+| `ALERT_TOPIC_ARN` | (set by serverless to the SNS topic) | Where per-token failure details are published |
 | `WARMUP_MESSAGE` | greeting + "say Warmed up!" | Message sent to API |
 | `MODEL` | `claude-haiku-4-5-20251001` | Cheapest model for warmup |
 | `MAX_TOKENS` | `64` | Minimal response tokens |
 | `AWS_REGION` | `eu-north-1` | Deployment region |
 
-Edit schedule in `serverless.yml` → redeploy. Rotate token via `./scripts/setup-secrets.sh` (no redeploy needed).
+**Adding a token:** `./scripts/setup-secrets.sh <id>` → add a `schedule` block in `serverless.yml` with `input: { tokenId: <id> }` → `./scripts/deploy.sh`.
+
+Edit schedules in `serverless.yml` → redeploy. Rotate a token via `./scripts/setup-secrets.sh <id>` (no redeploy needed).
 
 See [CLAUDE.md](CLAUDE.md) for full technical details.
 
@@ -142,8 +150,8 @@ See [CLAUDE.md](CLAUDE.md) for full technical details.
 | Service | Free Tier | This Project |
 |---------|-----------|-------------|
 | Lambda | 1M requests/month | 30/month (1/day) |
-| Secrets Manager | $0.40/secret/month | 1 secret |
-| EventBridge | Free | 1 rule |
+| Secrets Manager | $0.40/secret/month | 1 secret per token |
+| EventBridge | Free | 1 schedule per token |
 | CloudWatch | 5 GB logs | ~1 MB/month |
 | SNS | 1,000 emails/month | ~0 (failures only) |
 
@@ -174,14 +182,14 @@ See [CLAUDE.md](CLAUDE.md) for full technical details.
 
 **Warmup not working?**
 1. Check logs: `npx serverless logs -f warmup`
-2. Manual trigger: `npx serverless invoke -f warmup`
-3. Verify secret: `aws secretsmanager get-secret-value --secret-id claude-webasto/prod/token --region eu-north-1`
+2. Manual trigger: `npx serverless invoke -f warmup --data '{"tokenId":"alice"}'`
+3. Verify secret: `aws secretsmanager get-secret-value --secret-id claude-webasto/prod/token/alice --region eu-north-1`
 
 **Token expired?**
-Run `claude setup-token` to regenerate, then `./scripts/setup-secrets.sh`. No redeploy needed.
+Run `claude setup-token` to regenerate, then `./scripts/setup-secrets.sh <id>`. No redeploy needed.
 
 **Wrong time?**
-Edit `cron(0 6 * * ? *)` in `serverless.yml`. During summer DST (UTC+3), it fires at 9 AM Kyiv instead of 8 AM.
+Edit the relevant `schedule` block's `cron(...)` in `serverless.yml` (one per token). During summer DST (UTC+3), a `cron(0 6 * * ? *)` schedule fires at 9 AM Kyiv instead of 8 AM.
 
 **Remove everything?**
 ```bash
