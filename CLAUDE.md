@@ -38,7 +38,7 @@ npm run remove                   # same thing
 ./scripts/setup-secrets.sh       # Store OAuth token in AWS Secrets Manager
 
 # Manual invocation (after deploy)
-npx serverless invoke -f warmup  # Trigger warmup manually
+npx serverless invoke -f warmup --data '{"tokenId":"alice"}'  # Trigger warmup for one token
 
 # Logs
 npx serverless logs -f warmup --tail  # Stream CloudWatch logs
@@ -47,16 +47,18 @@ npx serverless logs -f warmup --tail  # Stream CloudWatch logs
 ## Architecture
 
 ```
-EventBridge cron(0 6 * * ? *)
-    ↓
-Lambda (warmup)
-    ├── Reads OAuth token from Secrets Manager (cached across warm invocations)
+EventBridge schedule (alice) cron(0 6 * * ? *)  ─┐
+EventBridge schedule (bob)   cron(0 14 * * ? *) ─┤
+                                                  ▼
+                                Lambda (warmup) — one function, N schedules
+    ├── Reads event.tokenId, resolves per-token secret (cached across warm invocations)
     ├── POST https://api.anthropic.com/v1/messages
     │     model: claude-haiku-4-5-20251001, max_tokens: 64
     └── Logs structured JSON to CloudWatch
 
 On failure:
-    CloudWatch Alarm → SNS Topic → Email (if subscribed)
+    Handler publishes a detailed message (tokenId + error) to the SNS alert topic → Email (if subscribed)
+    CloudWatch Errors/Throttles Alarm → SNS Topic → Email (backstop)
 ```
 
 ## Configuration
@@ -65,18 +67,20 @@ On failure:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AWS_SECRET_NAME` | `claude-webasto/prod/token` | Secrets Manager secret name |
+| `SECRET_NAME_PREFIX` | `claude-webasto/prod/token` | Secrets Manager name prefix; per-token secret is `<prefix>/<tokenId>` |
+| `ALERT_TOPIC_ARN` | (set by serverless to the SNS topic) | Where per-token failure details are published |
 | `WARMUP_MESSAGE` | (greeting + "say Warmed up!") | Message sent to Anthropic API |
 | `MODEL` | `claude-haiku-4-5-20251001` | Model to use (use cheapest) |
 | `MAX_TOKENS` | `64` | Max response tokens |
 | `AWS_REGION` | `eu-north-1` | AWS deployment region |
 
-**Secrets Manager secret** (`claude-webasto/prod/token`):
+**Secrets Manager secrets** (one per token, `claude-webasto/prod/token/<id>`):
 ```json
 {
   "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-..."
 }
 ```
+A schedule with no `tokenId` falls back to the legacy `claude-webasto/prod/token`.
 
 Generate the token with: `claude setup-token`
 
@@ -96,14 +100,24 @@ Generate the token with: `claude setup-token`
 - Change schedule: edit `cron()` in `serverless.yml` → `./scripts/deploy.sh`
 - Rotate token: `./scripts/setup-secrets.sh` (no redeploy needed)
 
+### Adding a token
+1. `./scripts/setup-secrets.sh <id>` — store that token's OAuth token
+2. Add a `schedule` block in `serverless.yml` with `input: { tokenId: <id> }` and its cron
+3. `./scripts/deploy.sh`
+
 ## File Structure
 
 ```
-src/warmup.ts          # Lambda handler (single file)
-scripts/deploy.sh      # Build + deploy pipeline
-scripts/remove.sh      # Stack teardown + optional secret deletion
-scripts/setup-secrets.sh  # Store OAuth token in Secrets Manager
-serverless.yml         # IaC: Lambda + EventBridge + SNS + CloudWatch
+src/
+├── config.ts            # Load config from environment
+├── secretName.ts        # Resolve per-token secret name
+├── tokenStore.ts        # Per-token cache (Map) + Secrets Manager retrieval
+├── alerter.ts           # SNS failure alert publisher
+└── warmup.ts            # Handler that wires dependencies together
+scripts/deploy.sh        # Build + deploy pipeline
+scripts/remove.sh        # Stack teardown + optional secret deletion
+scripts/setup-secrets.sh # Store OAuth token in Secrets Manager
+serverless.yml           # IaC: Lambda + EventBridge + SNS + CloudWatch
 ```
 
 ## Code Style
@@ -117,7 +131,7 @@ serverless.yml         # IaC: Lambda + EventBridge + SNS + CloudWatch
 ## Important Implementation Details
 
 ### OAuth Token Caching
-The OAuth token is cached in a module-level variable (`cachedToken`). On error, the cache is invalidated so the next invocation fetches a fresh token from Secrets Manager.
+Tokens are cached per secret name in a `Map` within `src/tokenStore.ts`. On a 401/403 response, only that token's cache entry is invalidated; other tokens' entries remain intact for the next invocation. This enables safe per-token retry logic without affecting other concurrent warmups.
 
 ### Anthropic API Headers
 Required headers for Claude Code OAuth tokens:

@@ -5,13 +5,17 @@
   "private": true,
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "deploy": "./scripts/deploy.sh",
     "remove": "./scripts/remove.sh"
   },
   "devDependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1000.0",
-    "@types/aws-lambda": "^8",
+    "@aws-sdk/client-sns": "^3.1000.0",
     "@types/node": "^22",
-    "typescript": "^5.4.0"
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.1.0"
   }
 }
